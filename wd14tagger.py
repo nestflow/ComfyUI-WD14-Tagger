@@ -8,6 +8,7 @@ import csv
 import os
 import sys
 import onnxruntime as ort
+import hashlib
 from onnxruntime import InferenceSession
 from PIL import Image
 from server import PromptServer
@@ -179,6 +180,7 @@ class WD14Tagger:
             "character_threshold": ("FLOAT", {"default": defaults["character_threshold"], "min": 0.0, "max": 1, "step": 0.05}),
             "replace_underscore": ("BOOLEAN", {"default": defaults["replace_underscore"]}),
             "trailing_comma": ("BOOLEAN", {"default": defaults["trailing_comma"]}),
+            "cache": ("BOOLEAN", {"default": True}),
             "exclude_tags": ("STRING", {"default": defaults["exclude_tags"]}),
         }}
 
@@ -189,15 +191,34 @@ class WD14Tagger:
 
     CATEGORY = "image"
 
-    def tag(self, image, model, threshold, character_threshold, exclude_tags="", replace_underscore=False, trailing_comma=False):
+    def __init__(self):
+        self.img_hash_map = {}
+
+    def tag(self, image, model, threshold, character_threshold, exclude_tags="", replace_underscore=False, trailing_comma=False, cache=False):
         tensor = image*255
         tensor = np.array(tensor, dtype=np.uint8)
+
+        if not cache: # Clear cache
+            self.img_hash_map = {}
 
         pbar = comfy.utils.ProgressBar(tensor.shape[0])
         tags = []
         for i in range(tensor.shape[0]):
             image = Image.fromarray(tensor[i])
-            tags.append(wait_for_async(lambda: tag(image, model, threshold, character_threshold, exclude_tags, replace_underscore, trailing_comma)))
+
+            if cache:
+                img_hash = hashlib.sha256(image.tobytes()).hexdigest()
+                if img_hash in self.img_hash_map:
+                    curr_tag = self.img_hash_map.get(img_hash)
+                    print(f"Find cached image {img_hash}")
+                else:
+                    print(f"Caching new image {img_hash}")
+                    curr_tag = wait_for_async(lambda: tag(image, model, threshold, character_threshold, exclude_tags, replace_underscore, trailing_comma))
+                    self.img_hash_map[img_hash] = curr_tag
+            else:
+                curr_tag = wait_for_async(lambda: tag(image, model, threshold, character_threshold, exclude_tags, replace_underscore, trailing_comma))
+            
+            tags.append(curr_tag)
             pbar.update(1)
         return {"ui": {"tags": tags}, "result": (tags,)}
 
