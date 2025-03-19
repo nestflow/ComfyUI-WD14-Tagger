@@ -234,7 +234,7 @@ class WD14Tagger:
                     (result, general_index, character_index) = wait_for_async(lambda: tag(image, model, replace_underscore))
                     self.img_hash_map[img_hash] = (result, general_index, character_index)
             else:
-                result = wait_for_async(lambda: tag(image, model, replace_underscore))
+                (result, general_index, character_index) = wait_for_async(lambda: tag(image, model, replace_underscore))
             
             tags.append(get_tag(result, general_index, character_index, threshold, character_threshold, trailing_comma, exclude_tags))
             pbar.update(1)
