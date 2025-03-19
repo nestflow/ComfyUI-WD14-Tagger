@@ -48,7 +48,7 @@ def get_installed_models():
     return models
 
 
-async def tag(image, model_name, threshold=0.35, character_threshold=0.85, exclude_tags="", replace_underscore=True, trailing_comma=False, client_id=None, node=None):
+async def tag(image, model_name, replace_underscore=True, client_id=None, node=None):
     if model_name.endswith(".onnx"):
         model_name = model_name[0:-5]
     installed = list(get_installed_models())
@@ -93,7 +93,9 @@ async def tag(image, model_name, threshold=0.35, character_threshold=0.85, exclu
     probs = model.run([label_name], {input.name: image})[0]
 
     result = list(zip(tags, probs[0]))
+    return (result, general_index, character_index)
 
+def get_tag(result, general_index, character_index, threshold=0.35, character_threshold=0.85, trailing_comma=False, exclude_tags=""):
     # rating = max(result[:general_index], key=lambda x: x[1])
     general = [item for item in result[general_index:character_index] if item[1] > threshold]
     character = [item for item in result[character_index:] if item[1] > character_threshold]
@@ -193,14 +195,26 @@ class WD14Tagger:
 
     def __init__(self):
         self.img_hash_map = {}
+        self.last_model = ""
+        self.if_replace_underscore = False
 
     def tag(self, image, model, threshold, character_threshold, exclude_tags="", replace_underscore=False, trailing_comma=False, cache=False):
         tensor = image*255
         tensor = np.array(tensor, dtype=np.uint8)
 
-        if not cache: # Clear cache
+        if not cache:
+            print("Clear tagger cache: cache is disabled.")
             self.img_hash_map = {}
-
+        else:
+            if self.last_model != model:
+                print("Clear tagger cache: model changed.")
+                self.last_model = model
+                self.img_hash_map = {}
+            if self.if_replace_underscore != replace_underscore:
+                print(f"Clear tagger cache: replace_underscore becomes {replace_underscore}.")
+                self.if_replace_underscore = replace_underscore
+                self.img_hash_map = {}
+        
         pbar = comfy.utils.ProgressBar(tensor.shape[0])
         tags = []
         for i in range(tensor.shape[0]):
@@ -209,16 +223,16 @@ class WD14Tagger:
             if cache:
                 img_hash = hashlib.sha256(image.tobytes()).hexdigest()
                 if img_hash in self.img_hash_map:
-                    curr_tag = self.img_hash_map.get(img_hash)
+                    (result, general_index, character_index) = self.img_hash_map.get(img_hash)
                     print(f"Find cached image {img_hash}")
                 else:
                     print(f"Caching new image {img_hash}")
-                    curr_tag = wait_for_async(lambda: tag(image, model, threshold, character_threshold, exclude_tags, replace_underscore, trailing_comma))
-                    self.img_hash_map[img_hash] = curr_tag
+                    (result, general_index, character_index) = wait_for_async(lambda: tag(image, model, replace_underscore))
+                    self.img_hash_map[img_hash] = (result, general_index, character_index)
             else:
-                curr_tag = wait_for_async(lambda: tag(image, model, threshold, character_threshold, exclude_tags, replace_underscore, trailing_comma))
+                result = wait_for_async(lambda: tag(image, model, replace_underscore))
             
-            tags.append(curr_tag)
+            tags.append(get_tag(result, general_index, character_index, threshold, character_threshold, trailing_comma, exclude_tags))
             pbar.update(1)
         return {"ui": {"tags": tags}, "result": (tags,)}
 
