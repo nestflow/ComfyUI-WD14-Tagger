@@ -197,30 +197,34 @@ class WD14Tagger:
         self.img_hash_map = {}
         self.last_model = ""
         self.if_replace_underscore = False
+        self.enable_cache = False
 
     def tag(self, image, model, threshold, character_threshold, exclude_tags="", replace_underscore=False, trailing_comma=False, cache=False):
         tensor = image*255
         tensor = np.array(tensor, dtype=np.uint8)
 
         if not cache:
-            print("Clear tagger cache: cache is disabled.")
-            self.img_hash_map = {}
+            if self.enable_cache:
+                print("Clear tagger cache: cache is disabled.")
+                self.img_hash_map = {}
+            self.enable_cache = False
         else:
             if self.last_model != model:
-                print("Clear tagger cache: model changed.")
+                print("Clear tagger cache: model changes.")
                 self.last_model = model
                 self.img_hash_map = {}
             if self.if_replace_underscore != replace_underscore:
                 print(f"Clear tagger cache: replace_underscore becomes {replace_underscore}.")
                 self.if_replace_underscore = replace_underscore
                 self.img_hash_map = {}
+            self.enable_cache = True
         
         pbar = comfy.utils.ProgressBar(tensor.shape[0])
         tags = []
         for i in range(tensor.shape[0]):
             image = Image.fromarray(tensor[i])
 
-            if cache:
+            if self.enable_cache:
                 img_hash = hashlib.sha256(image.tobytes()).hexdigest()
                 if img_hash in self.img_hash_map:
                     (result, general_index, character_index) = self.img_hash_map.get(img_hash)
